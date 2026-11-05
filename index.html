@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Agent 双引擎助手</title>
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 Vue 3 -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        /* 自定义滚动条 */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .typing-cursor::after {
+            content: '▍';
+            animation: blink 1s step-end infinite;
+        }
+        @keyframes blink { 50% { opacity: 0; } }
+    </style>
+</head>
+<body class="bg-gray-50 h-screen flex justify-center items-center font-sans">
+    <div id="app" class="w-full max-w-4xl h-[90vh] bg-white rounded-2xl shadow-xl flex flex-col overflow-hidden border border-gray-200">
+
+        <!-- 顶部导航 -->
+        <header class="bg-indigo-600 text-white p-4 shadow-md flex justify-between items-center z-10">
+            <h1 class="text-xl font-bold flex items-center gap-2">
+                <span>🤖</span> AI Agent 工业级双引擎
+            </h1>
+            <span class="text-sm bg-indigo-500 px-3 py-1 rounded-full border border-indigo-400">
+                DeepSeek + Qdrant + Tavily
+            </span>
+        </header>
+
+        <!-- 聊天内容区 -->
+        <main ref="chatBox" class="flex-1 overflow-y-auto p-6 space-y-6 bg-gray-50/50">
+            <!-- 欢迎提示 -->
+            <div v-if="messages.length === 0" class="text-center text-gray-400 mt-20">
+                <p class="text-4xl mb-4">👋</p>
+                <p>你好，兄弟 !我是你的专属 AI 助手。</p>
+                <p class="text-sm mt-2">你可以问我项目细节（查本地），也可以问我实时新闻（查全网）。</p>
+            </div>
+
+            <!-- 消息列表 -->
+            <div v-for="(msg, index) in messages" :key="index" class="flex" :class="msg.role === 'user' ? 'justify-end' : 'justify-start'">
+
+                <!-- AI 头像 -->
+                <div v-if="msg.role === 'assistant'" class="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-xl mr-3 flex-shrink-0 shadow-sm">
+                    🤖
+                </div>
+
+                <div class="max-w-[75%] flex flex-col">
+                    <!-- 路由状态提示 -->
+                    <div v-if="msg.role === 'assistant' && msg.route" class="text-xs text-indigo-500 mb-1 flex items-center gap-1">
+                        <span v-if="msg.route === 'rag'">📚 正在检索私有知识库...</span>
+                        <span v-else-if="msg.route === 'web'">🌐 正在全网搜索...</span>
+                        <span v-else>💬 正在思考...</span>
+                    </div>
+
+                    <!-- 气泡 -->
+                    <div
+                        class="p-4 rounded-2xl shadow-sm text-sm leading-relaxed whitespace-pre-wrap"
+                        :class="msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-sm' : 'bg-white border border-gray-100 text-gray-800 rounded-tl-sm'"
+                        :class="{'typing-cursor': msg.isTyping}"
+                    >
+                        {{ msg.content || '...' }}
+                    </div>
+                </div>
+
+                <!-- 用户头像 -->
+                <div v-if="msg.role === 'user'" class="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-xl ml-3 flex-shrink-0 shadow-sm">
+                    👤
+                </div>
+            </div>
+        </main>
+
+        <!-- 底部输入框 -->
+        <footer class="p-4 bg-white border-t border-gray-100">
+            <div class="flex items-center bg-gray-100 rounded-full p-1 pl-4 border border-gray-200 focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 transition-all">
+                <input
+                    v-model="inputText"
+                    @keyup.enter="sendMessage"
+                    type="text"
+                    placeholder="输入你的问题，按 Enter 发送..."
+                    class="flex-1 bg-transparent outline-none text-gray-700 placeholder-gray-400"
+                    :disabled="isLoading"
+                >
+                <button
+                    @click="sendMessage"
+                    :disabled="isLoading || !inputText.trim()"
+                    class="bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white w-10 h-10 rounded-full flex items-center justify-center transition-colors ml-2"
+                >
+                    <svg v-if="!isLoading" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+                    </svg>
+                    <svg v-else class="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                </button>
+            </div>
+        </footer>
+    </div>
+
+    <script>
+        const { createApp, ref, nextTick } = Vue;
+
+        createApp({
+            setup() {
+                const inputText = ref('');
+                const messages = ref([]);
+                const isLoading = ref(false);
+                const chatBox = ref(null);
+
+                // 生成一个随机的 user_id（实际项目中可以存入 localStorage）
+                let userId = localStorage.getItem("agent_user_id");
+                if (!userId) {
+                    userId = "admin" + Math.floor(Math.random() * 1000);
+                    localStorage.setItem("agent_user_id", userId);
+}
+
+                // 滚动到底部
+                const scrollToBottom = async () => {
+                    await nextTick();
+                    if (chatBox.value) {
+                        chatBox.value.scrollTop = chatBox.value.scrollHeight;
+                    }
+                };
+
+                const sendMessage = async () => {
+                    const question = inputText.value.trim();
+                    if (!question || isLoading.value) return;
+
+                    // 1. 用户消息入列
+                    messages.value.push({ role: 'user', content: question });
+                    inputText.value = '';
+                    isLoading.value = true;
+                    scrollToBottom();
+
+                    // 2. 准备 AI 消息占位
+                    const aiMsgIndex = messages.value.length;
+                    messages.value.push({ role: 'assistant', content: '', route: '', isTyping: true });
+                    scrollToBottom();
+
+                    try {
+                        // 3. 调用后端 FastAPI
+                        const response = await fetch('http://127.0.0.1:8000/api/chat', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ user_id: userId, question: question })
+                        });
+
+                        if (!response.ok) throw new Error("网络请求失败");
+
+                        // 4. 读取 SSE 流
+                        const reader = response.body.getReader();
+                        const decoder = new TextDecoder('utf-8');
+                        let done = false;
+                        let buffer = '';
+
+                        while (!done) {
+                            const { value, done: readerDone } = await reader.read();
+                            done = readerDone;
+                            if (value) {
+                                buffer += decoder.decode(value, { stream: true });
+                                const lines = buffer.split('\n\n');
+
+                                // 保留最后一个不完整的块
+                                buffer = lines.pop();
+
+                                for (const line of lines) {
+                                    if (line.startsWith('data: ')) {
+                                        const dataStr = line.replace('data: ', '').trim();
+                                        if (!dataStr) continue;
+
+                                        try {
+                                            const data = JSON.parse(dataStr);
+                                            if (data.type === 'meta') {
+                                                // 更新路由状态
+                                                messages.value[aiMsgIndex].route = data.route;
+                                            } else if (data.text) {
+                                                // 追加文本
+                                                messages.value[aiMsgIndex].content += data.text;
+                                            }
+                                        } catch (e) {
+                                            console.error("JSON 解析失败:", dataStr);
+                                        }
+                                    }
+                                }
+                                scrollToBottom();
+                            }
+                        }
+                    } catch (error) {
+                        messages.value[aiMsgIndex].content = "抱歉，服务器连接失败，请检查后端服务是否已启动。";
+                        console.error(error);
+                    } finally {
+                        messages.value[aiMsgIndex].isTyping = false;
+                        isLoading.value = false;
+                        scrollToBottom();
+                    }
+                };
+
+                return {
+                    inputText,
+                    messages,
+                    isLoading,
+                    chatBox,
+                    sendMessage
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

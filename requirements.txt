@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+sqlalchemy
+pymysql
+openai
+qdrant-client
+sentence-transformers
+tavily-python
+python-dotenv
