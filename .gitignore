@@ -13,3 +13,5 @@ mysql_data/
 
 # 日志
 *.log
+
+.idea/
